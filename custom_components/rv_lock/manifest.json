@@ -1,0 +1,19 @@
+{
+  "domain": "rv_lock",
+  "name": "RV Lock (Tuya BLE)",
+  "codeowners": [
+    "@davilaa"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "bluetooth"
+  ],
+  "documentation": "https://github.com/davilaa/rv-lock",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/davilaa/rv-lock/issues",
+  "requirements": [
+    "pycryptodome>=3.20.0"
+  ],
+  "version": "1.1.0"
+}

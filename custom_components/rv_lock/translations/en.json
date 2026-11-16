@@ -1,0 +1,127 @@
+{
+ "config": {
+  "step": {
+   "user": {
+    "title": "RV Door Lock",
+    "description": "If the ha_kohree integration is set up for this lock, its keys are imported. Otherwise enter them here.",
+    "data": {
+     "address": "Lock Bluetooth address",
+     "local_key": "Tuya local key",
+     "uuid": "Tuya uuid",
+     "dev_id": "Tuya device id",
+     "passcode": "Unlock passcode",
+     "proxy_source": "Bluetooth address of the ESPHome proxy (optional)"
+    }
+   }
+  },
+  "abort": {
+   "already_configured": "Already configured"
+  }
+ },
+ "services": {
+  "create_pin": {
+   "name": "Create PIN",
+   "description": "Store a permanent PIN on the lock.",
+   "fields": {
+    "name": {
+     "name": "Name",
+     "description": "Who it is for"
+    },
+    "code": {
+     "name": "Code",
+     "description": "6-10 digits"
+    },
+    "admin": {
+     "name": "Admin",
+     "description": "Admin member"
+    }
+   }
+  },
+  "create_temporary_pin": {
+   "name": "Create temporary PIN",
+   "description": "Store a PIN valid only between start and end (optionally on certain weekdays/hours or for a number of uses).",
+   "fields": {
+    "name": {
+     "name": "Name",
+     "description": "Who it is for"
+    },
+    "code": {
+     "name": "Code",
+     "description": "6-10 digits"
+    },
+    "start": {
+     "name": "Start",
+     "description": "Default now"
+    },
+    "end": {
+     "name": "End",
+     "description": "When it stops working"
+    },
+    "uses": {
+     "name": "Uses",
+     "description": "0 = unlimited in the window"
+    },
+    "weekdays": {
+     "name": "Weekdays",
+     "description": "Only on these days"
+    },
+    "daily_from": {
+     "name": "Daily from",
+     "description": "Time of day"
+    },
+    "daily_to": {
+     "name": "Daily to",
+     "description": "Time of day"
+    }
+   }
+  },
+  "delete_pin": {
+   "name": "Delete PIN",
+   "description": "Remove a PIN (permanent or temporary) created from HA.",
+   "fields": {
+    "name": {
+     "name": "Name",
+     "description": "Name used when it was created"
+    }
+   }
+  },
+  "enroll_fingerprint": {
+   "name": "Enroll fingerprint",
+   "description": "Start fingerprint enrolment; touch the sensor until the enrolment sensor says done.",
+   "fields": {
+    "name": {
+     "name": "Name",
+     "description": "Whose finger"
+    },
+    "admin": {
+     "name": "Admin",
+     "description": "Admin member"
+    }
+   }
+  },
+  "delete_fingerprint": {
+   "name": "Delete fingerprint",
+   "description": "Remove a fingerprint enrolled from HA.",
+   "fields": {
+    "name": {
+     "name": "Name",
+     "description": "Name used when it was enrolled"
+    }
+   }
+  },
+  "list_credentials": {
+   "name": "List credentials",
+   "description": "PINs and fingerprints created from HA."
+  },
+  "forget_credential": {
+   "name": "Forget credential",
+   "description": "Drop a stored PIN or fingerprint record without talking to the lock (every record when no name is given).",
+   "fields": {
+    "name": {
+     "name": "Name",
+     "description": "Record to forget; leave empty for all"
+    }
+   }
+  }
+ }
+}

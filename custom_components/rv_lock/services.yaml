@@ -1,0 +1,29 @@
+create_pin:
+  fields:
+    name: {required: true, example: "Guest", selector: {text: {}}}
+    code: {required: true, example: "135790", selector: {text: {}}}
+    admin: {selector: {boolean: {}}}
+create_temporary_pin:
+  fields:
+    name: {required: true, example: "Cleaner", selector: {text: {}}}
+    code: {required: true, example: "246810", selector: {text: {}}}
+    start: {selector: {datetime: {}}}
+    end: {required: true, selector: {datetime: {}}}
+    uses: {example: 0, selector: {number: {min: 0, max: 254, mode: box}}}
+    weekdays: {selector: {select: {multiple: true, options: [mon, tue, wed, thu, fri, sat, sun]}}}
+    daily_from: {example: "09:00", selector: {time: {}}}
+    daily_to: {example: "17:00", selector: {time: {}}}
+delete_pin:
+  fields:
+    name: {required: true, selector: {text: {}}}
+enroll_fingerprint:
+  fields:
+    name: {required: true, selector: {text: {}}}
+    admin: {selector: {boolean: {}}}
+delete_fingerprint:
+  fields:
+    name: {required: true, selector: {text: {}}}
+forget_credential:
+  fields:
+    name: {example: "Right index", selector: {text: {}}}
+list_credentials:

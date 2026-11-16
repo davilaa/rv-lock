@@ -1,0 +1,175 @@
+# Example ESPHome configuration: a classic ESP32 Bluetooth proxy that also manages the lock's link
+# with the lock_fastlink component. Replace the lock address and the names with yours and put the
+# four secrets in secrets.yaml. Copy bt_tx_power.h next to this file.
+esphome:
+  name: bt-proxy
+  friendly_name: bt-proxy
+  includes:
+    - bt_tx_power.h
+  on_boot:
+    priority: -100
+    then:
+      - delay: 5s
+      - lambda: "set_max_tx_power();"
+      # template select/switch restore their value without running their actions
+      - lambda: |-
+          auto x = id(fastlink_interval).current_option();
+          uint16_t units = 40;
+          if (x == "30 ms") units = 24;
+          else if (x == "50 ms") units = 40;
+          else if (x == "100 ms") units = 80;
+          else if (x == "200 ms") units = 160;
+          else if (x == "500 ms") units = 400;
+          else if (x == "1000 ms") units = 800;
+          id(fastlink).set_target_interval(units);
+          id(fastlink).set_enabled(id(fastlink_switch).state);
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  actions:
+    # Experiment hooks. Nothing here is persistent: values return to the YAML ones on reboot.
+    - action: lock_link_tune
+      variables:
+        peer_hold: bool
+        honour_ms: int
+        login_fast_ms: int
+      then:
+        - lambda: |-
+            id(fastlink).set_peer_hold(peer_hold);
+            id(fastlink).set_honour_ms(honour_ms);
+            id(fastlink).set_login_fast_ms(login_fast_ms);
+    # Radio sharing while scanning / connecting.
+    - action: lock_radio_test
+      variables:
+        boost: int
+        wifi_pct: int
+        hold: int
+        init_units: int
+      then:
+        - lambda: |-
+            id(fastlink).set_radio_test(boost, wifi_pct, hold, init_units);
+    # Skip or run the version exchange with the lock.
+    - action: lock_skip_version
+      variables:
+        skip: bool
+      then:
+        - lambda: |-
+            id(fastlink).set_skip_version(skip);
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+external_components:
+  - source: github://davilaa/rv-lock@main
+    components: [lock_fastlink]
+
+lock_fastlink:
+  id: fastlink
+  mac_address: AA:BB:CC:DD:EE:FF   # the lock's Bluetooth address
+  enabled: true
+  interval: 30ms                 # hold interval until the select's stored value is applied at boot; after
+                                 # that the "Lock link interval" select decides
+  connect_interval_min: 30ms     # the link is created at 30 ms
+  connect_interval_max: 30ms
+  honour: 200ms                  # with peer_request: follow, an interval set by the lock stands this long
+  login_fast: 15s                # every connection runs at 30 ms this long, then moves to the hold interval
+  peer_request: hold             # the lock's own 200-400 ms request: hold = answer OK and keep our interval;
+                                 # follow = grant at 200 ms, then revert
+  initiate_full_duty: true       # the first connect request listens without gaps
+  connect_boost: 1               # while waiting for the lock's advert: 0 off, 1 larger Bluetooth radio share,
+                                 # 2 also Wi-Fi max modem sleep
+  boost_wifi_share: 20           # Wi-Fi's percent of each beacon period while boosted
+  skip_version_exchange: true    # report the link up after the feature exchange, no version exchange
+
+switch:
+  - platform: template
+    name: "Lock fast link"
+    id: fastlink_switch
+    entity_category: config
+    icon: mdi:speedometer
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: id(fastlink).set_enabled(true);
+    turn_off_action:
+      - lambda: id(fastlink).set_enabled(false);
+
+select:
+  - platform: template
+    name: "Lock link interval"
+    id: fastlink_interval
+    entity_category: config
+    icon: mdi:timer-outline
+    optimistic: true
+    restore_value: true
+    initial_option: "30 ms"
+    options: ["30 ms", "50 ms", "100 ms", "200 ms", "500 ms", "1000 ms"]
+    on_value:
+      - lambda: |-
+          uint16_t units = 40;
+          if (x == "30 ms") units = 24;
+          else if (x == "100 ms") units = 80;
+          else if (x == "200 ms") units = 160;
+          else if (x == "500 ms") units = 400;
+          else if (x == "1000 ms") units = 800;
+          id(fastlink).set_target_interval(units);
+
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 160ms
+    window: 150ms
+    connection_scan_window: 30ms   # scan only 30 of 160 ms while a BLE link (the lock) is up
+    active: true
+
+bluetooth_proxy:
+  active: true
+
+sensor:
+  - platform: template
+    name: "Lock advert wait"
+    id: lock_advert_wait
+    unit_of_measurement: ms
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    icon: mdi:timer-sand
+    update_interval: never
+  - platform: template
+    name: "Lock link bring-up"
+    id: lock_bringup
+    unit_of_measurement: ms
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    icon: mdi:timer-sand
+    update_interval: never
+  - platform: template
+    name: "Lock connect requests"
+    id: lock_conn_reqs
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    icon: mdi:counter
+    update_interval: never
+
+# Publish the timings of the last lock connect (5 s after the link came up).
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          uint32_t w = 0, b = 0, r = 0;
+          if (id(fastlink).take_phases(w, b, r)) {
+            id(lock_advert_wait).publish_state(w);
+            id(lock_bringup).publish_state(b);
+            id(lock_conn_reqs).publish_state(r);
+          }
