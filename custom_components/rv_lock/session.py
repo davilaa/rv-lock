@@ -652,6 +652,17 @@ class LockSession:
                                 and not self._cred_lock.locked()
                                 and time.monotonic() - self._last_cmd_mono >= self.idle_seconds
                                 and time.monotonic() >= self.released_until):
+                            # Piggyback a battery read on this about-to-close link if the gauge
+                            # has not been refreshed in a day: in on-demand mode every connect is
+                            # command-driven, so _sync never gets to poll it (it defers to the
+                            # command that is holding the link).  This is the once-a-day reading.
+                            await self._battery_poll_if_stale()
+                            # A command may have arrived during that read; only park if still idle.
+                            if not (self.connected and not self._cmd_lock.locked()
+                                    and not self._cred_lock.locked()
+                                    and time.monotonic() - self._last_cmd_mono >= self.idle_seconds
+                                    and time.monotonic() >= self.released_until):
+                                continue
                             _LOGGER.info("RV lock: idle %.0f s -> disconnecting to save battery "
                                          "(reconnects on the next command)",
                                          time.monotonic() - self._last_cmd_mono)
@@ -761,6 +772,35 @@ class LockSession:
             self._last_dp_write = time.monotonic()
             _LOGGER.debug("RV lock: DP-write keepalive acknowledged (link held %.0f s)",
                           time.monotonic() - self._connected_at)
+
+    async def _battery_poll_if_stale(self) -> None:
+        """Read the battery if it has not been read for BATTERY_SYNC_INTERVAL.
+
+        Called from the idle loop right before the link is dropped, so it reuses the
+        connection a command just opened instead of waking a dedicated connect.  In
+        on-demand mode every connect is command-driven, so _sync never gets to poll
+        the battery; this is where the daily reading comes from.  Runs under _cmd_lock
+        (like the DP-write keepalive) so it never overlaps a user command.
+        """
+        if self._cmd_lock.locked() or self._cred_lock.locked():
+            return
+        if self.battery is not None and time.monotonic() - self._last_battery_sync < BATTERY_SYNC_INTERVAL:
+            return
+        async with self._cmd_lock:
+            if not self.connected:
+                return
+            try:
+                self._dps_sn += 1
+                check = b"\xff\xff\x00\x01" + self._passcode.encode() + b"\x00"
+                await self._request(P.CMD_DP_WRITE, P.dp_write_data(self._dps_sn, 69, P.DP_TYPE_RAW, check),
+                                    P.SEC_SESSION, timeout=8)
+                if not self.connected:
+                    return
+                await self._send(P.CMD_QUERY_DPS, b"\x55", P.SEC_SESSION)
+                self._last_battery_sync = time.monotonic()
+                _LOGGER.info("RV lock: battery read before idle park (battery %s%%)", self.battery)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("RV lock: battery read before idle park failed: %r", err)
 
     async def _sleep_or_wake(self, seconds: float) -> None:
         try:
