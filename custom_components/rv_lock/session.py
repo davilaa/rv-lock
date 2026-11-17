@@ -82,6 +82,7 @@ from .const import (
     PROXY_SETTLE_CACHED,
     HANDSHAKE_STEP_TIMEOUT,
     BATTERY_SYNC_INTERVAL,
+    STALE_LINK_RECHECK,
     NOTIFY_CHAR,
     READBACK_TIMEOUT,
     STEP_TIMEOUT,
@@ -580,8 +581,17 @@ class LockSession:
                     # Idle-disconnect: the link was dropped after IDLE_DISCONNECT to save the
                     # lock's battery.  Stay quiet (radio asleep on the lock side) and do NOT
                     # reconnect on adverts -- only a user command clears _idle_parked + wakes us.
+                    # But a session the lock's own supervision timeout dropped can leave the proxy
+                    # still holding the lock's slot (a zombie that then refuses the next connect --
+                    # HA's or the phone app's -- until something forces it closed; a 3 h-old one
+                    # blocked two unlock commands 2026-11-16).  While parked we want no link, so
+                    # drop any the proxy still lists, then re-check every STALE_LINK_RECHECK.  No
+                    # connect, no bolt movement; this branch is skipped during Release, so the app
+                    # keeps its link.
+                    if self._proxy_holds_lock():
+                        await self._clear_proxy_link()
                     self._wake.clear()
-                    await self._sleep_or_wake(3600.0)
+                    await self._sleep_or_wake(STALE_LINK_RECHECK)
                     continue
                 if not self.connected:
                     self._last_attempt = time.monotonic()

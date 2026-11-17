@@ -82,6 +82,9 @@ DP_KEEPALIVE_INTERVAL = 75.0              # s: a harmless DP WRITE (the dp69 che
                                           # not the adapter, is the "~5 min self-hangup".  Seen in the
                                           # firmware of a sibling BK3431Q-based lock (2 min there, ~5 min on this lock).
 BATTERY_SYNC_INTERVAL = 86400.0           # s: dp69 check + battery query (queryDps 0x55) at most once a day
+STALE_LINK_RECHECK = 300.0                # s: while idle-parked, how often to drop a proxy slot the
+                                          # lock still holds (a zombie link from an abnormal drop blocks the next
+                                          # connect for HA and the phone app until it is forced closed)
 STEP_TIMEOUT = 15.0                       # per handshake step, then one resend (same future keeps the first sn
                                           # alive).  Was 8 s; at -84..-90 dBm (~90 % of connection events lost,
                                           # 2026-11-06 HCI trace) a 2-fragment reply took 5-25 s to complete.
