@@ -44,6 +44,7 @@ CONF_INITIATE_FULL_DUTY = "initiate_full_duty"
 CONF_CONNECT_BOOST = "connect_boost"
 CONF_BOOST_WIFI_SHARE = "boost_wifi_share"
 CONF_SKIP_VERSION = "skip_version_exchange"
+CONF_RETRY_FULL_DUTY = "retry_full_duty"
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -68,6 +69,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_BOOST_WIFI_SHARE, default=45): cv.int_range(min=5, max=60),
         # report the lock's link up after the feature exchange, without the version exchange
         cv.Optional(CONF_SKIP_VERSION, default=False): cv.boolean,
+        # the first retry after an unanswered connect request also listens continuously (later retries stay stock)
+        cv.Optional(CONF_RETRY_FULL_DUTY, default=False): cv.boolean,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -96,6 +99,7 @@ async def to_code(config):
     cg.add(var.set_connect_boost(config[CONF_CONNECT_BOOST]))
     cg.add(var.set_boost_wifi_share(config[CONF_BOOST_WIFI_SHARE]))
     cg.add(var.set_skip_version(config[CONF_SKIP_VERSION]))
+    cg.add(var.set_retry_full_duty(config[CONF_RETRY_FULL_DUTY]))
     cg.add_build_flag("-Wl,--wrap=esp_ble_gap_update_conn_params")
     cg.add_build_flag("-Wl,--wrap=btsnd_hcic_ble_upd_ll_conn_params")
     cg.add_build_flag("-Wl,--wrap=btsnd_hcic_ble_create_ll_conn")

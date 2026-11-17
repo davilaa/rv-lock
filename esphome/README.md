@@ -41,7 +41,11 @@ Tested with ESPHome 2026.10.2 on an `esp32dev` board, built in the Home Assistan
   interval" select decides it: its stored value (30 ms on a fresh flash) is applied at boot and
   replaces `interval`.
 - **Connect listening** (`initiate_full_duty`): the first LE Create Connection of each connect
-  listens without gaps; Bluedroid's own automatic retries keep the stock 30 of 60 ms.
+  listens without gaps. When the lock does not answer a connect request (about 1 connect in 10),
+  Bluedroid re-issues it by itself; with `retry_full_duty` the first of those retries listens
+  without gaps too, instead of the stock 30 of 60 ms that hears only half of the lock's
+  advertisements. Any further retry keeps the stock duty, so a lock that is not answering at all
+  is not sent requests in quick succession.
 - **Connect timings**: `take_phases()` hands out, once per connection, the wait for the
   advertisement, the link bring-up time and the number of connect requests. The example YAML
   publishes them as three diagnostic sensors 5 s after link-up.
@@ -77,15 +81,18 @@ components}`. If the path is wrong, the build stops at the include of `l2c_int.h
 | `connect_boost` | `2` | 0 off, 1 larger Bluetooth radio share, 2 also Wi-Fi max modem sleep (the example uses 1) |
 | `boost_wifi_share` | `45` | Wi-Fi's percent of each beacon period while boosted, 5-60 (the example uses 20) |
 | `skip_version_exchange` | `false` | Skip the LL version exchange with the lock (the example uses `true`) |
+| `retry_full_duty` | `false` | Gap-free listening on the first retry after an unanswered connect request (the example uses `true`) |
 
 API actions in the example, for experiments (values return to the YAML ones on reboot):
 `lock_link_tune` (`peer_hold`, `honour_ms`, `login_fast_ms`), `lock_radio_test` (`boost`,
 `wifi_pct`, `hold`, `init_units`; `hold: 1` keeps the larger Bluetooth share on while only
-scanning and ends by itself after 120 s) and `lock_skip_version` (`skip`).
+scanning and ends by itself after 120 s), `lock_skip_version` (`skip`) and `lock_retry_listen`
+(`full`).
 
 The config dump in the proxy log shows it working:
 `Link setup for the lock: 24-24 x1.25 ms (overrides used: N, updates held: N)`,
-`Version exchange with the lock: skipped (skipped N times)`.
+`Version exchange with the lock: skipped (skipped N times)`,
+`First retry of a connect to the lock: continuous (used N)`.
 
 ## How it works
 

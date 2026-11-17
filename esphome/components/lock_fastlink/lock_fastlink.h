@@ -27,6 +27,7 @@ class LockFastLink : public Component {
   void set_login_fast_ms(uint32_t ms);
   void set_peer_hold(bool hold);
   void set_initiate_full_duty(bool on);
+  void set_retry_full_duty(bool on);
   void set_radio_test(int boost, int wifi_pct, int hold, int init_units);
   void set_skip_version(bool skip);
   void set_boost_wifi_share(int pct);

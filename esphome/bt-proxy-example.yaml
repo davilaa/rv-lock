@@ -63,6 +63,13 @@ api:
       then:
         - lambda: |-
             id(fastlink).set_skip_version(skip);
+    # Continuous listening on the first connect retry.
+    - action: lock_retry_listen
+      variables:
+        full: bool
+      then:
+        - lambda: |-
+            id(fastlink).set_retry_full_duty(full);
 
 ota:
   - platform: esphome
@@ -93,6 +100,7 @@ lock_fastlink:
                                  # 2 also Wi-Fi max modem sleep
   boost_wifi_share: 20           # Wi-Fi's percent of each beacon period while boosted
   skip_version_exchange: true    # report the link up after the feature exchange, no version exchange
+  retry_full_duty: true          # the first retry after an unanswered connect request also listens without gaps
 
 switch:
   - platform: template

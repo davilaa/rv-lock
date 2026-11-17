@@ -69,6 +69,8 @@ static volatile uint16_t g_lock_handle = NO_HANDLE;
 static volatile uint32_t g_login_fast_ms = 15000;
 static volatile bool g_peer_hold = false;
 static volatile bool g_full_duty = true;
+static volatile bool g_retry_full = false;      // the first retry of a connect also listens continuously
+static volatile uint32_t g_retry_full_count = 0;
 static volatile uint32_t g_peer_count = 0;       // updates for the lock's link that were not our own request
 static volatile uint16_t g_peer_min = 0, g_peer_max = 0, g_peer_timeout = 0;      // what was asked
 static volatile uint16_t g_peer_sent_min = 0, g_peer_sent_max = 0;                // what went to the controller
@@ -170,6 +172,7 @@ void LockFastLink::set_peer_hold(bool hold) {
 }
 
 void LockFastLink::set_initiate_full_duty(bool on) { g_full_duty = on; }
+void LockFastLink::set_retry_full_duty(bool on) { g_retry_full = on; }
 
 void LockFastLink::set_skip_version(bool skip) {
   g_skip_version = skip;
@@ -277,6 +280,8 @@ void LockFastLink::dump_config() {
   ESP_LOGCONFIG(TAG, "Login window %u ms at %u x1.25 ms; lock's own request: %s, honour %u ms (seen %u)",
                 (unsigned) g_login_fast_ms, (unsigned) LOGIN_UNITS, g_peer_hold ? "hold" : "follow",
                 (unsigned) this->honour_ms_, (unsigned) g_peer_count);
+  ESP_LOGCONFIG(TAG, "First retry of a connect to the lock: %s (used %u)",
+                (g_full_duty && g_retry_full) ? "continuous" : "stock 30 of 60 ms", (unsigned) g_retry_full_count);
   ESP_LOGCONFIG(TAG, "Connect listening for the lock: %s (used %u), connect boost %u (Wi-Fi share %u %% while connecting)",
                 g_full_duty ? "continuous" : "stock 30 of 60 ms", (unsigned) g_create_count, (unsigned) g_boost_mode,
                 (unsigned) coex_schm_ble_mesh_config_wifi_conn[2]);
@@ -567,11 +572,16 @@ BOOLEAN __wrap_btsnd_hcic_ble_create_ll_conn(UINT16 scan_int, UINT16 scan_win, U
   using namespace esphome::lock_fastlink;
   if (g_override && bda_peer != nullptr && memcmp(bda_peer, g_lock_bda, 6) == 0) {
     g_conn_gen = g_conn_gen + 1;  // a new connection to the lock is being set up
-    // Only the first request of a connect listens continuously.  Bluedroid re-issues the
-    // connect by itself (up to GATTC_CONNECT_RETRY_COUNT times, no pause) when the lock does
-    // not answer; those retries keep the stock 30-of-60 ms so they are spaced as before.
+    // The first request of a connect listens continuously.  Bluedroid re-issues the connect
+    // by itself (up to GATTC_CONNECT_RETRY_COUNT times, no pause) when the lock does not
+    // answer.  With retry_full_duty the FIRST of those retries listens continuously too (an
+    // unanswered request is nearly always a one-off, and at the stock 30-of-60 ms the retry
+    // hears only half of the lock's advertisements, which is where most multi-second connects
+    // come from).  Any further retry keeps the stock duty, so a lock that is not answering at
+    // all is never sent requests in quick succession.
     tL2C_LCB *p = l2cu_find_lcb_by_bd_addr(bda_peer, BT_TRANSPORT_LE);
     bool first = p != nullptr && p->retry_create_con == 0;
+    bool retry1 = p != nullptr && p->retry_create_con == 1;
     if (first) {
       g_t_create_ms = now_ms();
       g_creates = 1;
@@ -584,6 +594,10 @@ BOOLEAN __wrap_btsnd_hcic_ble_create_ll_conn(UINT16 scan_int, UINT16 scan_win, U
       scan_int = g_init_units;
       scan_win = g_init_units;
       g_create_count = g_create_count + 1;
+    } else if (g_full_duty && g_retry_full && retry1) {
+      scan_int = g_init_units;
+      scan_win = g_init_units;
+      g_retry_full_count = g_retry_full_count + 1;
     }
   }
   return __real_btsnd_hcic_ble_create_ll_conn(scan_int, scan_win, init_filter_policy, addr_type_peer, bda_peer,
