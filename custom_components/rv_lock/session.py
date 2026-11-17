@@ -83,6 +83,7 @@ from .const import (
     HANDSHAKE_STEP_TIMEOUT,
     BATTERY_SYNC_INTERVAL,
     STALE_LINK_RECHECK,
+    STALE_LINK_GRACE,
     NOTIFY_CHAR,
     READBACK_TIMEOUT,
     STEP_TIMEOUT,
@@ -336,6 +337,7 @@ class LockSession:
         self.want_connected = True
         self.released_until = 0.0
         self._idle_parked = False          # True = stood down after idle; wakes only on a command
+        self._park_fresh = False           # True until the first stale-link check after a park
         self._last_cmd_mono = time.monotonic()  # last user command (lock/unlock/cred); drives idle-disconnect
         self.idle_enabled = True           # idle-disconnect on/off (switch entity; default from IDLE_DISCONNECT)
         self.idle_seconds = float(IDLE_DISCONNECT)  # idle grace before disconnect (number entity)
@@ -585,13 +587,16 @@ class LockSession:
                     # still holding the lock's slot (a zombie that then refuses the next connect --
                     # HA's or the phone app's -- until something forces it closed; a 3 h-old one
                     # blocked two unlock commands 2026-11-16).  While parked we want no link, so
-                    # drop any the proxy still lists, then re-check every STALE_LINK_RECHECK.  No
-                    # connect, no bolt movement; this branch is skipped during Release, so the app
-                    # keeps its link.
-                    if self._proxy_holds_lock():
-                        await self._clear_proxy_link()
+                    # drop any the proxy still lists: first STALE_LINK_GRACE after parking (our own
+                    # disconnect needs a moment to finish on the proxy; looking at once reported it
+                    # as stale after every park), then every STALE_LINK_RECHECK.  No connect, no bolt
+                    # movement; this branch is skipped during Release, so the app keeps its link.
                     self._wake.clear()
-                    await self._sleep_or_wake(STALE_LINK_RECHECK)
+                    await self._sleep_or_wake(STALE_LINK_GRACE if self._park_fresh else STALE_LINK_RECHECK)
+                    self._park_fresh = False
+                    if (self._idle_parked and not self.connected and self._client is None
+                            and time.monotonic() >= self.released_until and self._proxy_holds_lock()):
+                        await self._clear_proxy_link()
                     continue
                 if not self.connected:
                     self._last_attempt = time.monotonic()
@@ -677,6 +682,7 @@ class LockSession:
                                          "(reconnects on the next command)",
                                          time.monotonic() - self._last_cmd_mono)
                             self._idle_parked = True
+                            self._park_fresh = True
                             await self._disconnect()
                             self._notify()
                             break

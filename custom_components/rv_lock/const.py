@@ -47,13 +47,13 @@ PROXY_CACHED_CONNECT = True   # ask the ESPHome proxy for its cached connect pat
                               # reconnect; that first connect takes the normal path by itself.  Proxy path only;
                               # hci0 is untouched.  After any failed round the next one uses the normal path
                               # (session._cached_ok) until a login has succeeded again.
-PROXY_SETTLE_CACHED = 0.10    # s between connect() returning and the handshake on a cached proxy connect.
-                              # connect() then returns right at link-up (not ~0.15 s after it, as uncached), so
-                              # the login starts about 0.1-0.15 s sooner after link-up than on the uncached path.
-                              # Measured 2026-11-15, randomized, 12 cold connects per arm: link start -> ready
-                              # 996 ms uncached, 907 ms cached at 0.10 (1051 ms at 0.25: slower than uncached).
-                              # The proxy still runs the MTU exchange first; Bluedroid queues the first GATT
-                              # write behind it.
+PROXY_SETTLE_CACHED = 0.0     # s between connect() returning and the handshake on a cached proxy connect.
+                              # connect() then returns right at link-up (not ~0.15 s after it, as uncached).
+                              # No pause is needed: the proxy still runs the MTU exchange first and Bluedroid
+                              # queues the first GATT write behind it.  Measured, randomized, link start ->
+                              # ready: 996 ms uncached, 907 ms cached at 0.10, 1051 ms at 0.25 (2026-11-15,
+                              # 12 connects per arm); 694 ms at 0 against 786 ms at 0.10 (2026-11-17, 6 per
+                              # arm, 12 of 12 logins good at 0).
 REACHABLE_WINDOW = 180.0   # s: "Reachable" stays on this long after the last advert a connectable scanner heard.
                            # While idle-parked the link is down by design, so "Connected = off" says nothing;
                            # the lock still advertises every 0.77 s and the proxy hears about 1 in 5 (gaps of
@@ -82,6 +82,8 @@ DP_KEEPALIVE_INTERVAL = 75.0              # s: a harmless DP WRITE (the dp69 che
                                           # not the adapter, is the "~5 min self-hangup".  Seen in the
                                           # firmware of a sibling BK3431Q-based lock (2 min there, ~5 min on this lock).
 BATTERY_SYNC_INTERVAL = 86400.0           # s: dp69 check + battery query (queryDps 0x55) at most once a day
+STALE_LINK_GRACE = 8.0                    # s after parking before the first look at the proxy's slots (lets our own
+                                          # disconnect finish there, so a normal teardown is not reported as stale)
 STALE_LINK_RECHECK = 300.0                # s: while idle-parked, how often to drop a proxy slot the
                                           # lock still holds (a zombie link from an abnormal drop blocks the next
                                           # connect for HA and the phone app until it is forced closed)
