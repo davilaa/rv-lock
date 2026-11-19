@@ -19,6 +19,7 @@ esphome:
           else if (x == "50 ms") units = 40;
           else if (x == "100 ms") units = 80;
           else if (x == "200 ms") units = 160;
+          else if (x == "400 ms") units = 320;
           else if (x == "500 ms") units = 400;
           else if (x == "1000 ms") units = 800;
           id(fastlink).set_target_interval(units);
@@ -124,13 +125,14 @@ select:
     optimistic: true
     restore_value: true
     initial_option: "30 ms"
-    options: ["30 ms", "50 ms", "100 ms", "200 ms", "500 ms", "1000 ms"]
+    options: ["30 ms", "50 ms", "100 ms", "200 ms", "400 ms", "500 ms", "1000 ms"]
     on_value:
       - lambda: |-
           uint16_t units = 40;
           if (x == "30 ms") units = 24;
           else if (x == "100 ms") units = 80;
           else if (x == "200 ms") units = 160;
+          else if (x == "400 ms") units = 320;
           else if (x == "500 ms") units = 400;
           else if (x == "1000 ms") units = 800;
           id(fastlink).set_target_interval(units);
