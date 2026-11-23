@@ -18,12 +18,22 @@ SERVICE_UUID = "0000fd50-0000-1000-8000-00805f9b34fb"
 WRITE_CHAR = "00000001-0000-1001-8001-00805f9b07d0"
 NOTIFY_CHAR = "00000002-0000-1001-8001-00805f9b07d0"
 
-# Datapoints (Kohree, Tuya product f9amgmrh)
+# Datapoints (Kohree, Tuya product f9amgmrh).  Observed set from a full motor cycle
+# (2026-11-23): the lock emits only DP 1, 19, 46, 47, 71 (plus 8).  There is NO jam
+# datapoint and NO "motor running" datapoint -- DP 47 is the only motor property and it
+# is a RESULT, not a live flag (see below).  A jam can only be inferred (DP 47 did not
+# reach the commanded state); the integration does that in _verify_later.
 DP_BATTERY = 8          # int, %
-DP_UNLOCK_BLE_COUNT = 19
-DP_LOCK = 46            # bool, 1 = lock
-DP_MOTOR_STATE = 47     # bool, 0 = locked, 1 = unlocked
-DP_BLE_UNLOCK = 71      # raw, ble_unlock_check
+DP_UNLOCK_BLE_COUNT = 19  # int, running count of BLE unlocks
+DP_LOCK = 46            # bool, 1 = lock.  Drives the motor UNCONDITIONALLY: a write runs the
+                        # motor whatever the lock's own DP 47 state is (verified 2026-11-23 -- a
+                        # bare lock re-threw the bolt after a hand-turn), so no pre-unlock is needed.
+DP_MOTOR_STATE = 47     # bool, 0 = locked, 1 = unlocked.  The lock's self-reported state; PUSHED
+                        # when the motor FINISHES (not while it runs).  It tracks the motor/bolt
+                        # driver, NOT the thumb-turn, so after a manual turn it is stale -- this is
+                        # the concrete meaning of "the lock still considers itself locked".
+DP_BLE_UNLOCK = 71      # raw, ble_unlock_check (unlock command + the echoed unlock record)
+DP_UNKNOWN_1 = 1        # bool, seen = 0 throughout lock and unlock; purpose unconfirmed, not a jam/motor flag
 
 # Connection behaviour copied from the Smart Life app (thingclips SDK):
 CONNECT_ATTEMPTS = 4                      # connectRetry=3 (bleak_retry_connector max_attempts)

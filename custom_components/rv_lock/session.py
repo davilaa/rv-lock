@@ -495,61 +495,39 @@ class LockSession:
                 await self._do_unlock()
 
     async def _do_lock(self) -> None:
-        """Lock, even after a hand-turn the lock can't sense.
+        """Lock the door.  Caller holds _cmd_lock.
 
-        The lock's bolt sensor doesn't see the thumb-turn, so after a manual
-        unlock it still believes it is locked and acknowledges a lock command
-        without running the motor.  When the lock believes it is locked (or we
-        don't know), unlock first, then lock, as ONE operation.  If the lock step
-        fails after the pre-unlock went through, it is retried once and a failure
-        is reported loudly (the door may be unlocked).  Caller holds _cmd_lock.
+        A DP 46 write runs the motor whatever state the lock believes it is in
+        (verified 2026-11-23: a bare lock threw the bolt after a hand-turn the
+        lock could not sense), so a lock is a single motor command with no
+        pre-unlock.  It is sent twice to be sure: the first write is
+        authoritative and a failure is reported loudly (the door may be
+        unlocked); the second is a best-effort re-assert so a dropped ack on the
+        first can't quietly leave the door open.
         """
         start = time.monotonic()
-        if True:
-            self.locking = True
-            self._internal_unlock = True
-            self._notify()
+        self.locking = True
+        self._notify()
+        try:
             try:
-                pre_unlocked = False
-                if self.locked is not False:
-                    gen_before = self._dp47_gen
-                    self._unlock_written = False
-                    try:
-                        await self._command_locked(DP_BLE_UNLOCK, P.DP_TYPE_RAW, self._unlock_value, "pre-unlock",
-                                                   locked=False, start=start, publish=False)
-                        pre_unlocked = True
-                    except Exception as err:  # noqa: BLE001
-                        # Written but unconfirmed: the door may be open, treat it as unlocked.
-                        pre_unlocked = self._unlock_written
-                        _LOGGER.info("RV lock: pre-unlock not confirmed (%r, written=%s); locking anyway",
-                                     err, pre_unlocked)
-                    if pre_unlocked:
-                        # The ack comes before the motor runs: let it finish unlocking.
-                        with suppress(TimeoutError, asyncio.TimeoutError):
-                            async with asyncio.timeout(6):
-                                await self._wait_report(gen_before, False)
-                try:
-                    await self._command_locked(DP_LOCK, P.DP_TYPE_BOOL, lambda: b"\x01", "lock", locked=True,
-                                               start=start)
-                except Exception as err:
-                    if not pre_unlocked:
-                        raise
-                    _LOGGER.warning("RV lock: lock step failed after pre-unlock (%r); retrying", err)
-                    await asyncio.sleep(1.5)
-                    try:
-                        await self._command_locked(DP_LOCK, P.DP_TYPE_BOOL, lambda: b"\x01", "lock",
-                                                   locked=True, start=time.monotonic())
-                    except Exception as err2:
-                        persistent_notification.async_create(
-                            self.hass,
-                            "The RV door lock did not confirm LOCK after it was unlocked as part of the lock "
-                            "sequence. The door may be UNLOCKED.", "RV lock", "rv_lock_failed_lock")
-                        raise BleakError(f"lock failed, door may be UNLOCKED ({err2})") from err2
-            finally:
-                self._internal_unlock = False
-                self._suppress_app_until = time.monotonic() + 5  # the app-unlock record can arrive late
-                self.locking = False
-                self._notify()
+                await self._command_locked(DP_LOCK, P.DP_TYPE_BOOL, lambda: b"\x01", "lock",
+                                           locked=True, start=start)
+            except Exception as err:
+                persistent_notification.async_create(
+                    self.hass,
+                    "The RV door lock did not confirm LOCK. The door may be UNLOCKED.",
+                    "RV lock", "rv_lock_failed_lock")
+                raise BleakError(f"lock failed, door may be UNLOCKED ({err})") from err
+            # Send it again to be sure; the door is already locked so a failure
+            # on this second write is not reported (the first is authoritative).
+            try:
+                await self._command_locked(DP_LOCK, P.DP_TYPE_BOOL, lambda: b"\x01", "lock (confirm)",
+                                           locked=True, start=time.monotonic())
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.info("RV lock: confirming second lock did not ack (%r); first lock succeeded", err)
+        finally:
+            self.locking = False
+            self._notify()
 
     def _unlock_value(self) -> bytes:
         return P.ble_unlock_value(self._passcode, int(time.time()))
