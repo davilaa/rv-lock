@@ -19,6 +19,10 @@ class RvLock(RvLockEntity, LockEntity, RestoreEntity):
         if self.session.locked is None and (last := await self.async_get_last_state()) is not None:
             if last.state in ("locked", "unlocked"):
                 self.session.locked = last.state == "locked"
+                # Seed the confirmed-position baseline across a restart so jam/unconfirmed
+                # detection is live immediately (refined by the next real DP 47 report).
+                if self.session._bolt_confirmed is None:
+                    self.session._bolt_confirmed = self.session.locked
 
     @property
     def is_locked(self):
