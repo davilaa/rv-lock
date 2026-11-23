@@ -354,14 +354,6 @@ class LockSession:
         self._detached: set = set()                  # links we dropped ourselves (pre-emptive); their late callback is ignored
         self.last_handshake_s: float | None = None   # device_info+pair time of the last reconnect
         self.jammed = False
-        # Last bolt position the lock actually CONFIRMED via a DP 47 report (True=locked,
-        # False=unlocked, None=never seen).  Updated ONLY by DP 47 reports, never by an ack,
-        # so it is the ground truth of where the motor last drove the bolt.  (A manual
-        # thumb-turn is invisible to DP 47, so this can still go stale after a hand-turn.)
-        self._bolt_confirmed: bool | None = None
-        # A commanded change (lock<->unlock) acked but no DP 47 ever confirmed the bolt moved.
-        # Could be a jam or a lost report -- we cannot tell, so we do NOT call it "jammed".
-        self.unconfirmed = False
 
     # ------------------------------------------------------------ public API
     @property
@@ -1255,9 +1247,10 @@ class LockSession:
             if self.connect_count != session or self._cmd_lock.locked():
                 return
             # The dp69 check + queryDps(0x55) battery read only needs to run once a day:
-            # battery drifts slowly and the empty queryDps above already syncs bolt state.
-            # Doing it on every ~4.5 min pre-emptive reconnect was 3 extra frames (incl. a
-            # write) per login for no new information.
+            # battery drifts slowly.  (Neither queryDps returns bolt state on this lock --
+            # it answers with DP 1 only, never DP 47; position is push-on-motor-change only,
+            # verified 2026-11-23.)  Doing the battery read on every ~4.5 min pre-emptive
+            # reconnect was 3 extra frames (incl. a write) per login for no new information.
             if self.battery is not None and time.monotonic() - self._last_battery_sync < BATTERY_SYNC_INTERVAL:
                 return
             self._dps_sn += 1
@@ -1438,11 +1431,7 @@ class LockSession:
             ival = int.from_bytes(val, "big")
             if dp == DP_MOTOR_STATE:
                 self.locked = ival == 0
-                self._bolt_confirmed = self.locked  # ground-truth position the lock just reported
                 self.jammed = False
-                if self.unconfirmed:
-                    self.unconfirmed = False         # a real report resolves the earlier uncertainty
-                    changed = True
                 self._dp47_gen += 1
                 self._state_event.set()
                 changed = changed or not self._internal_unlock
@@ -1633,18 +1622,20 @@ class LockSession:
             return False
 
     def _verify_later(self, locked: bool) -> None:
-        """After an ack, make sure the bolt really moved.
+        """After an ack, flag a jam only if the lock AFFIRMATIVELY reports the wrong position.
 
-        The ack only means the lock received the command, not that the bolt moved; the
-        only proof of movement is a DP 47 report (pushed when the motor finishes).  Three
-        outcomes:
-          * a DP 47 arrives with the WRONG position  -> real jam (we can prove it).
-          * no DP 47 arrives AND a move was expected  -> UNconfirmed: the bolt may not have
-            moved (jam) or the report was lost; either way do not assert the commanded state.
-          * no DP 47 arrives AND no move was expected (commanded == last confirmed position,
-            e.g. re-locking an already-locked door) -> normal, stay quiet.
-        'A move was expected' is judged against self._bolt_confirmed (the last DP 47), NOT
-        the optimistic self.locked, so a redundant command never raises a false alarm.
+        The ack means the lock received the command, not that the bolt moved; only a DP 47
+        report proves movement.  We can prove a jam ONLY in the case where a DP 47 arrives
+        reporting a position other than the one commanded.
+
+        We deliberately do NOT treat the *absence* of a DP 47 as a jam.  This lock emits
+        DP 47 only when its own motor changes the bolt's position, and it will not report
+        position on request (verified 2026-11-23: an empty/0x55 queryDps and a full reconnect
+        handshake return only DP 1, never DP 47).  So "no DP 47" is irreducibly ambiguous --
+        it means the bolt was already there (e.g. a manual thumb-turn to the commanded
+        position, which DP 47 never sees), OR it jammed, OR the report was lost -- and there
+        is no way to tell them apart or to re-sync after a hand-turn.  Flagging silence would
+        false-alarm on every hand-turn-then-command, so we don't.
         """
         gen0 = self._dp47_gen
 
@@ -1663,19 +1654,6 @@ class LockSession:
                     async with asyncio.timeout(8):
                         await _wait_one()
                 except Exception:  # noqa: BLE001
-                    # No DP 47 confirmation at all.  Only a problem if the bolt's last
-                    # CONFIRMED position is KNOWN and differs from what we commanded (a move
-                    # was expected).  Unknown baseline (None, e.g. just after a restart) ->
-                    # stay quiet rather than false-alarm; the next DP 47 establishes it.
-                    if (self._bolt_confirmed is not None and self._bolt_confirmed is not locked
-                            and not self.unconfirmed):
-                        self.locked = self._bolt_confirmed  # don't claim the unconfirmed state
-                        self.unconfirmed = True
-                        _LOGGER.warning(
-                            "RV lock: %s commanded but the bolt never confirmed it moved; "
-                            "position UNCONFIRMED (a jam or a lost report) -- check the door",
-                            "lock" if locked else "unlock")
-                        self._notify()
                     return
             jammed = self.locked is not locked
             if jammed != self.jammed:
